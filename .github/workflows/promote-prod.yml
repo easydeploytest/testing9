@@ -1,0 +1,35 @@
+name: Promote to prod
+
+on:
+  release:
+    types: [published]
+
+env:
+  REGISTRY: "registry.easy-deploy.135.181.177.246.nip.io"
+
+jobs:
+  promote:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Re-tag image for prod
+        run: |
+          APP=$(python3 -c "import yaml; print(yaml.safe_load(open('app.yaml'))['name'])")
+          VERSION="${{ github.event.release.tag_name }}"
+          docker login $REGISTRY -u easydeploy -p EasyDeploy2024
+          docker pull $REGISTRY/easy-deploy/$APP:latest
+          docker tag $REGISTRY/easy-deploy/$APP:latest $REGISTRY/easy-deploy/$APP:$VERSION
+          docker tag $REGISTRY/easy-deploy/$APP:latest $REGISTRY/easy-deploy/$APP:stable
+          docker push $REGISTRY/easy-deploy/$APP:$VERSION
+          docker push $REGISTRY/easy-deploy/$APP:stable
+
+      - name: Trigger platform promotion
+        run: |
+          APP_YAML_B64=$(base64 < app.yaml | tr -d '\n')
+          gh api repos/easydeploytest/EasyDeploy/dispatches \
+            -X POST \
+            -f event_type=app-promote \
+            -f "client_payload[version]=${{ github.event.release.tag_name }}" \
+            -f "client_payload[repo_url]=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            -f "client_payload[app_yaml_b64]=$APP_YAML_B64"
